@@ -4,9 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>ReadRun</title>
-<!-- PDF.js for PDF text extraction -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<!-- JSZip for ePub (zip) unpacking -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -21,10 +19,102 @@ body {
 canvas {
   display: block; background: #f7f7f7; border-radius: 4px;
   width: 100%; aspect-ratio: 800 / 280;
+  touch-action: none;
 }
 #wrap { position: relative; width: min(800px, 100vw - 16px); }
 
-/* ── Overlay modal ── */
+/* ── UI overlay ── */
+#ui-overlay {
+  position: absolute; top: 8px; right: 8px;
+  display: flex; gap: 6px; z-index: 5;
+}
+#pause-btn, #settings-btn {
+  width: 32px; height: 32px;
+  background: rgba(255,255,255,0.35);
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
+  border: 1px solid rgba(255,255,255,0.55);
+  border-radius: 9px;
+  font-size: 15px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  color: #444; transition: all 0.15s;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.10), inset 0 1px 0 rgba(255,255,255,0.7);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+#pause-btn:hover, #settings-btn:hover { background: rgba(255,255,255,0.62); }
+#pause-btn:active, #settings-btn:active { transform: scale(0.93); }
+
+/* ── Settings panel — liquid glass ── */
+#settings-panel {
+  position: absolute; top: 48px; right: 8px;
+  background: rgba(255,255,255,0.28);
+  backdrop-filter: blur(28px) saturate(200%);
+  -webkit-backdrop-filter: blur(28px) saturate(200%);
+  border: 1px solid rgba(255,255,255,0.5);
+  border-radius: 16px;
+  padding: 14px 16px;
+  z-index: 6;
+  min-width: 192px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.13), inset 0 1px 0 rgba(255,255,255,0.65);
+  font-family: 'Courier New', monospace; color: #333;
+}
+#settings-panel.hidden { display: none; }
+.set-label {
+  font-size: 10px; color: rgba(80,80,80,0.65);
+  text-transform: uppercase; letter-spacing: 1px;
+  margin-bottom: 7px; margin-top: 12px;
+}
+.set-label:first-child { margin-top: 0; }
+.speed-row { display: flex; gap: 4px; }
+.spd-btn {
+  flex: 1;
+  background: rgba(255,255,255,0.35);
+  border: 1px solid rgba(0,0,0,0.11);
+  border-radius: 7px; padding: 5px 0;
+  font-family: 'Courier New', monospace; font-size: 11px;
+  cursor: pointer; color: #555; transition: all 0.12s;
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+}
+.spd-btn.active {
+  background: rgba(40,40,40,0.76); color: #fff;
+  border-color: transparent;
+}
+.set-row {
+  display: flex; justify-content: space-between;
+  align-items: center; font-size: 12px; margin-top: 10px;
+}
+.tog { position: relative; width: 38px; height: 22px; cursor: pointer; display: inline-block; flex-shrink: 0; }
+.tog input { opacity: 0; width: 0; height: 0; position: absolute; }
+.tog-track {
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,0.18); border-radius: 11px;
+  transition: background 0.22s; border: 1px solid rgba(0,0,0,0.07);
+}
+.tog input:checked + .tog-track { background: rgba(52,199,89,0.78); }
+.tog-track::after {
+  content: ''; position: absolute; top: 2px; left: 2px;
+  width: 16px; height: 16px; background: #fff; border-radius: 50%;
+  transition: transform 0.22s; box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+}
+.tog input:checked + .tog-track::after { transform: translateX(16px); }
+
+/* ── Duck button (touch only) ── */
+#duck-btn {
+  position: absolute; bottom: 10px; right: 8px;
+  background: rgba(255,255,255,0.30);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  border: 1px solid rgba(255,255,255,0.5);
+  border-radius: 10px; padding: 9px 18px;
+  font-family: 'Courier New', monospace; font-size: 12px;
+  color: #555; cursor: pointer; z-index: 5;
+  -webkit-tap-highlight-color: transparent; touch-action: none; display: none;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.10), inset 0 1px 0 rgba(255,255,255,0.7);
+}
+@media (hover: none) and (pointer: coarse) { #duck-btn { display: block; } }
+
+/* ── Modal ── */
 #overlay {
   position: fixed; inset: 0; display: flex;
   align-items: center; justify-content: center;
@@ -54,8 +144,6 @@ canvas {
   font-family: 'Courier New', monospace; font-size: 14px; display: none;
 }
 #continue-btn:hover { background: #555; }
-
-/* ── Upload button in start modal ── */
 #upload-row {
   display: flex; gap: 10px; justify-content: center;
   align-items: center; margin-bottom: 14px;
@@ -66,19 +154,38 @@ canvas {
   font-size: 13px; color: #444; transition: all .12s; display: inline-block;
 }
 #upload-btn:hover, #upload-btn:active { background: #e0e0e0; border-color: #888; }
-#upload-label {
-  font-size: 12px; color: #888; font-family: 'Courier New', monospace;
-}
-/* visually hidden but accessible — label click triggers file picker on iOS */
-#file-input {
-  position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none;
-}
+#upload-label { font-size: 12px; color: #888; font-family: 'Courier New', monospace; }
+#file-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 #loading-msg { font-size: 13px; color: #666; display: none; margin-bottom: 14px; }
 </style>
 </head>
 <body>
 <div id="wrap">
   <canvas id="canvas" width="800" height="280"></canvas>
+
+  <div id="ui-overlay">
+    <button id="pause-btn" title="Pause (P)">⏸</button>
+    <button id="settings-btn" title="Settings">⚙</button>
+  </div>
+
+  <div id="settings-panel" class="hidden">
+    <div class="set-label">Speed</div>
+    <div class="speed-row">
+      <button class="spd-btn" data-s="0.5">0.5×</button>
+      <button class="spd-btn active" data-s="1">1×</button>
+      <button class="spd-btn" data-s="1.5">1.5×</button>
+      <button class="spd-btn" data-s="2">2×</button>
+    </div>
+    <div class="set-row">
+      <span>Auto speed-up</span>
+      <label class="tog">
+        <input type="checkbox" id="auto-speed-chk" checked>
+        <span class="tog-track"></span>
+      </label>
+    </div>
+  </div>
+
+  <button id="duck-btn">▼ DUCK</button>
 </div>
 
 <div id="overlay">
@@ -97,7 +204,6 @@ canvas {
 </div>
 
 <script>
-// ─── PDF.js worker ────────────────────────────────────────────────────────────
 if (typeof pdfjsLib !== 'undefined') {
   pdfjsLib.GlobalWorkerOptions.workerSrc =
     'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -105,41 +211,37 @@ if (typeof pdfjsLib !== 'undefined') {
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const W = 800, H = 280;
-const GROUND_Y     = 200;
-const FONT_SIZE    = 21;
-const FONT         = `${FONT_SIZE}px 'Courier New', monospace`;
-const CHAR_X       = 130;
-const CHAR_W       = 44;
-const CHAR_H_STAND = 58;
-const CHAR_H_DUCK  = 28;
-const BASE_SPEED   = 145;
-const GRAVITY      = 820;
-const JUMP_VY      = -490;
-const GAP_BIG = 85;
-const GAP_MED = 48;
-const BAR_BEAM_Y = GROUND_Y - CHAR_H_DUCK - 8;  // 164
-const BAR_BEAM_H = 8;
-const BAR_W      = 52;
+const GROUND_Y      = 200;
+const FONT_SIZE     = 21;
+const FONT          = `${FONT_SIZE}px 'Courier New', monospace`;
+const CHAR_X        = 130;
+const CHAR_W        = 44;
+const CHAR_H_STAND  = 58;
+const CHAR_H_DUCK   = 28;
+const BASE_SPEED    = 145;
+const GRAVITY       = 820;
+const JUMP_VY       = -490;
+const GAP_BIG       = 85;
+const GAP_MED       = 48;
+const BAR_BEAM_Y    = GROUND_Y - CHAR_H_DUCK - 8;   // 164
+const BAR_BEAM_H    = 8;
+const BAR_W         = 52;
+const BOX_W         = 28;
+const BOX_H         = 28;
+const BOX_BOTTOM    = GROUND_Y - CHAR_H_STAND - 8;  // 134 – bottom edge of box
 
-// ─── DEFAULT TEXT + QUESTIONS ─────────────────────────────────────────────────
+// ─── TEXT + QUESTIONS ─────────────────────────────────────────────────────────
 const DEFAULT_TEXT = `Call me Ishmael. Some years ago—never mind how long precisely—having little money in my purse, and nothing particular to interest me on shore, I thought I would sail about a little and see the watery part of the world. It is a way I have of driving off the spleen and regulating the circulation. Whenever I find myself growing grim about the mouth; whenever it is a damp, drizzly November in my soul; whenever I find myself involuntarily pausing before coffin warehouses, and bringing up the rear of every funeral I meet; and especially whenever my hypos get such an upper hand of me, that it requires a strong moral principle to prevent me from deliberately stepping into the street, and methodically knocking people's hats off—then, I account it high time to get to sea as soon as I can. This is my substitute for pistol and ball. With a philosophical flourish Cato throws himself upon his sword; I quietly take to the ship. There is nothing surprising in this. If they only knew it, almost all men in their degree, some time or other, cherish very nearly the same feelings towards the ocean as I do.`;
 
 const DEFAULT_QUESTIONS = [
-  { q:"What is the narrator's name?",
-    choices:["Ahab","Ishmael","Queequeg","Starbuck"], answer:1 },
-  { q:"Why does Ishmael go to sea?",
-    choices:["Hired as a sailor","To drive off the spleen and see the world","Lost his money","Running from trouble"], answer:1 },
-  { q:"What season does Ishmael feel in his soul when low?",
-    choices:["A bitter winter","A stormy summer","A damp, drizzly November","A grey spring"], answer:2 },
-  { q:"What does Ishmael feel like doing when his 'hypos' get the upper hand?",
-    choices:["Swimming far out","Methodically knocking people's hats off","Starting a fight","Running away"], answer:1 },
-  { q:"Going to sea is a substitute for what?",
-    choices:["A long journey","Pistol and ball","Medicine and rest","Bread and water"], answer:1 },
-  { q:"Who throws himself upon his sword with 'a philosophical flourish'?",
-    choices:["Ahab","Ishmael","Cato","Starbuck"], answer:2 },
+  { q:"What is the narrator's name?", choices:["Ahab","Ishmael","Queequeg","Starbuck"], answer:1 },
+  { q:"Why does Ishmael go to sea?", choices:["Hired as a sailor","To drive off the spleen and see the world","Lost his money","Running from trouble"], answer:1 },
+  { q:"What season does Ishmael feel when low?", choices:["A bitter winter","A stormy summer","A damp, drizzly November","A grey spring"], answer:2 },
+  { q:"What does Ishmael want to do when his 'hypos' take over?", choices:["Swim far out","Methodically knock people's hats off","Start a fight","Run away"], answer:1 },
+  { q:"Going to sea is Ishmael's substitute for what?", choices:["A long journey","Pistol and ball","Medicine and rest","Bread and water"], answer:1 },
+  { q:"Who throws himself upon his sword 'with a philosophical flourish'?", choices:["Ahab","Ishmael","Cato","Starbuck"], answer:2 },
 ];
 
-// Generic questions used when a custom text is loaded
 const GENERIC_QUESTIONS = [
   { q:"What were you just reading about?", choices:["Paying attention!","Daydreaming…","Both","Neither"], answer:0 },
   { q:"Can you recall the last word before you fell?", choices:["Yes!","Sort of","Not really","No…"], answer:0 },
@@ -156,18 +258,12 @@ async function loadFile(file) {
   document.getElementById('loading-msg').style.display = 'block';
   try {
     let text = '';
-    if (ext === 'txt') {
-      text = await file.text();
-    } else if (ext === 'pdf') {
-      text = await extractPDF(file);
-    } else if (ext === 'epub') {
-      text = await extractEPub(file);
-    } else {
-      alert('Unsupported file type. Use .pdf, .epub, or .txt');
-      return;
-    }
+    if (ext === 'txt')       text = await file.text();
+    else if (ext === 'pdf')  text = await extractPDF(file);
+    else if (ext === 'epub') text = await extractEPub(file);
+    else { alert('Unsupported file type. Use .pdf, .epub, or .txt'); return; }
     text = cleanText(text);
-    if (text.length < 100) { alert('Could not extract enough text from this file.'); return; }
+    if (text.length < 100) { alert('Could not extract enough text.'); return; }
     activeText      = text;
     activeQuestions = GENERIC_QUESTIONS;
     customTitle     = file.name.replace(/\.[^.]+$/, '');
@@ -182,78 +278,60 @@ async function loadFile(file) {
 }
 
 async function extractPDF(file) {
-  const buf  = await file.arrayBuffer();
-  const pdf  = await pdfjsLib.getDocument({ data: buf }).promise;
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
   let out = '';
   for (let i = 1; i <= pdf.numPages; i++) {
-    const page    = await pdf.getPage(i);
-    const content = await page.getTextContent();
-    out += content.items.map(it => it.str).join(' ') + ' ';
+    const pg = await pdf.getPage(i);
+    const ct = await pg.getTextContent();
+    out += ct.items.map(it => it.str).join(' ') + ' ';
   }
   return out;
 }
 
 async function extractEPub(file) {
   const zip = await JSZip.loadAsync(file);
-
-  // Locate content.opf via container.xml
   let opfPath = '';
-  const containerFile = zip.file('META-INF/container.xml');
-  if (containerFile) {
-    const xml   = await containerFile.async('text');
-    const match = xml.match(/full-path="([^"]+\.opf)"/i);
-    if (match) opfPath = match[1];
+  const cf = zip.file('META-INF/container.xml');
+  if (cf) {
+    const xml = await cf.async('text');
+    const m = xml.match(/full-path="([^"]+\.opf)"/i);
+    if (m) opfPath = m[1];
   }
-  if (!opfPath) {
-    // Fallback: find any .opf
-    zip.forEach((p) => { if (!opfPath && p.endsWith('.opf')) opfPath = p; });
-  }
-
+  if (!opfPath) zip.forEach(p => { if (!opfPath && p.endsWith('.opf')) opfPath = p; });
   let spineFiles = [];
   if (opfPath) {
-    const base   = opfPath.includes('/') ? opfPath.slice(0, opfPath.lastIndexOf('/') + 1) : '';
+    const base = opfPath.includes('/') ? opfPath.slice(0, opfPath.lastIndexOf('/') + 1) : '';
     const opfXml = await zip.file(opfPath).async('text');
-
-    // Build id→href manifest
     const manifest = {};
     for (const m of opfXml.matchAll(/<item\s[^>]*id="([^"]+)"[^>]*href="([^"]+)"/gi))
       manifest[m[1]] = base + m[2];
-
-    // Spine order
     for (const m of opfXml.matchAll(/<itemref\s[^>]*idref="([^"]+)"/gi)) {
-      const href = manifest[m[1]];
-      if (href) spineFiles.push(href);
+      if (manifest[m[1]]) spineFiles.push(manifest[m[1]]);
     }
   }
-
-  // Fallback: all xhtml/html files
   if (!spineFiles.length) {
-    zip.forEach((p) => { if (/\.(xhtml|html)$/i.test(p)) spineFiles.push(p); });
+    zip.forEach(p => { if (/\.(xhtml|html)$/i.test(p)) spineFiles.push(p); });
     spineFiles.sort();
   }
-
   let out = '';
   for (const path of spineFiles) {
     const f = zip.file(path) || zip.file(decodeURIComponent(path));
-    if (!f) continue;
-    const html = await f.async('text');
-    out += htmlStrip(html) + ' ';
+    if (f) out += htmlStrip(await f.async('text')) + ' ';
   }
   return out;
 }
 
 function htmlStrip(html) {
   return html
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi,'').replace(/<script[\s\S]*?<\/script>/gi,'')
+    .replace(/<[^>]+>/g,' ')
     .replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&lt;/g,'<')
     .replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'")
     .replace(/\s+/g,' ').trim();
 }
-
 function cleanText(t) {
-  return t.replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  return t.replace(/[\r\n\t]+/g,' ').replace(/\s{2,}/g,' ').trim();
 }
 
 // ─── TILE BUILDER ─────────────────────────────────────────────────────────────
@@ -269,56 +347,143 @@ function tokenize(raw) {
     } else if (ch==='-'||ch==='\u2014') {
       if (buf) { segs.push({ k:'word', t:buf }); buf=''; }
       segs.push({ k:'bar' });
-    } else { buf+=ch; }
+    } else { buf += ch; }
   }
   if (buf) segs.push({ k:'word', t:buf });
   return segs;
 }
+
+const POWER_TYPES = ['hoverboard','yoyo','hat','glasses'];
 
 function buildTiles(ctx, text) {
   ctx.font = FONT;
   const tiles = [];
   const spW = ctx.measureText(' ').width;
   let x = CHAR_X;
+  let wordIdx = 0;
+  const boxQueue = []; // boxes to add after tile list is built
+
   for (const raw of text.split(/\s+/).filter(Boolean)) {
     for (const seg of tokenize(raw)) {
-      if (seg.k==='word') {
+      if (seg.k === 'word') {
         const tw = Math.ceil(ctx.measureText(seg.t).width) + Math.ceil(spW);
-        tiles.push({ type:'word', x, w:tw, text:seg.t });
+        tiles.push({ type:'word', x, w:tw, text:seg.t, cleared:false });
+        wordIdx++;
+        // Mystery box every 12th word (starting after the 8th)
+        if (wordIdx >= 8 && (wordIdx - 8) % 36 === 0) {
+          const pt = POWER_TYPES[Math.floor(Math.random() * POWER_TYPES.length)];
+          boxQueue.push({ type:'box', x: x + tw/2 - BOX_W/2, w:BOX_W, h:BOX_H, used:false, powerType:pt, cleared:false });
+        }
         x += tw;
-      } else if (seg.k==='gap_big') {
-        tiles.push({ type:'gap', x, w:GAP_BIG, size:'big' }); x += GAP_BIG;
-      } else if (seg.k==='gap_med') {
-        tiles.push({ type:'gap', x, w:GAP_MED, size:'med' }); x += GAP_MED;
-      } else if (seg.k==='bar') {
-        tiles.push({ type:'bar', x, w:BAR_W }); x += BAR_W;
+      } else if (seg.k === 'gap_big') {
+        // 30% chance: convert big gap → lowbar (overhead obstacle on solid ground)
+        if (Math.random() < 0.30) {
+          tiles.push({ type:'lowbar', x, w:GAP_BIG, cleared:false, bridged:false });
+        } else {
+          tiles.push({ type:'gap', x, w:GAP_BIG, size:'big', cleared:false, bridged:false });
+        }
+        x += GAP_BIG;
+      } else if (seg.k === 'gap_med') {
+        tiles.push({ type:'gap', x, w:GAP_MED, size:'med', cleared:false, bridged:false });
+        x += GAP_MED;
+      } else if (seg.k === 'bar') {
+        tiles.push({ type:'bar', x, w:BAR_W, cleared:false, bridged:false });
+        x += BAR_W;
       }
     }
   }
   x += 50;
   const et = 'THE  END';
   const ew = Math.ceil(ctx.measureText(et).width) + Math.ceil(spW);
-  tiles.push({ type:'word', x, w:ew, text:et, isEnd:true });
-  tiles.push({ type:'end-marker', x:x+ew+10, w:1 });
-  return tiles;
+  tiles.push({ type:'word', x, w:ew, text:et, isEnd:true, cleared:false });
+  tiles.push({ type:'end-marker', x: x+ew+10, w:1 });
+
+  return [...tiles, ...boxQueue];
 }
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
 let canvas, ctx, tiles = [];
-let gameState = 'idle';   // idle | countdown | playing | paused | user-paused | dead | win
-let speed = 1, lives = 5, qIdx = 0, score = 0;
+let gameState = 'idle';
+let manualSpeed = 1, autoSpeedEnabled = true;
+let lives = 5, qIdx = 0, score = 0;
 let lastTS = null, animId = null;
 let cdVal = 3, cdTimer = 1.0;
-let totalWidth = 1;
+let totalWidth = 1, distanceTraveled = 0;
 
-const char = {
-  y: GROUND_Y - CHAR_H_STAND,
-  vy: 0, ducking: false, invincible: 0,
-};
+// Combo (increments every 3rd obstacle cleared)
+let comboHits = 0, combo = 0, comboTimer = 0, comboMax = 0;
+
+// Power-ups
+let activePower  = null;   // { type, timer }
+
+// Particles + floating text
+const particles    = [];
+const floatingTexts = [];
+
+// Screen shake
+let shakeIntensity = 0;
+
+// Touch
+let touchStartY  = 0;
+let touchDucking = false;
+
+const char = { y: GROUND_Y - CHAR_H_STAND, vy: 0, ducking: false, invincible: 0 };
 const charH   = () => char.ducking ? CHAR_H_DUCK : CHAR_H_STAND;
 const charTop = () => char.y;
 const charBot = () => char.y + charH();
 const onGnd   = () => charBot() >= GROUND_Y - 2;
+
+function currentSpeed() {
+  let s = autoSpeedEnabled
+    ? manualSpeed * (1 + Math.min(distanceTraveled / Math.max(totalWidth, 1), 1))
+    : manualSpeed;
+  if (activePower && activePower.type === 'glasses') s *= 0.5;
+  return s;
+}
+
+// ─── PARTICLES + FLOATING TEXT ────────────────────────────────────────────────
+function spawnParticles(x, y, color, count, small = false) {
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const spd   = small ? Math.random() * 70 + 20 : Math.random() * 160 + 60;
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * spd,
+      vy: Math.sin(angle) * spd - (small ? 25 : 80),
+      life: 1.0,
+      size: small ? 2 + Math.random() * 2 : 4 + Math.random() * 4,
+      color,
+    });
+  }
+}
+
+function spawnText(x, y, text, color = '#FFD700') {
+  floatingTexts.push({ x, y, vy: -55, text, life: 1.4, color });
+}
+
+// ─── POWER-UP APPLICATION ─────────────────────────────────────────────────────
+function applyPower(type) {
+  spawnParticles(CHAR_X + CHAR_W/2, char.y + charH()/2, '#FFD700', 12);
+  switch (type) {
+    case 'hat':
+      lives = Math.min(5, lives + 1);
+      spawnText(CHAR_X + CHAR_W/2, char.y - 10, '+1 \u2665', '#FF6666');
+      break;
+    case 'glasses':
+      activePower = { type: 'glasses', timer: 6 };
+      spawnText(CHAR_X + CHAR_W/2, char.y - 10, '\u{1F453} SLOW!', '#88CCFF');
+      break;
+    case 'yoyo':
+      activePower = { type: 'yoyo', timer: 6 };
+      char.invincible = Math.max(char.invincible, 6);
+      spawnText(CHAR_X + CHAR_W/2, char.y - 10, 'SHIELD!', '#88FFBB');
+      break;
+    case 'hoverboard':
+      activePower = { type: 'hoverboard', timer: 8 };
+      spawnText(CHAR_X + CHAR_W/2, char.y - 10, 'HOVERBOARD!', '#00FFCC');
+      break;
+  }
+}
 
 // ─── INPUT ────────────────────────────────────────────────────────────────────
 window.addEventListener('keydown', e => {
@@ -333,43 +498,40 @@ window.addEventListener('keydown', e => {
     if (gameState==='playing') char.ducking = true;
   }
   if (e.code==='KeyP') {
-    if (gameState==='playing' || gameState==='user-paused') togglePause();
+    if (gameState==='playing'||gameState==='user-paused') togglePause();
   }
 });
 window.addEventListener('keyup', e => {
   if (e.code==='ArrowDown') char.ducking = false;
 });
 
-// ─── TOUCH CONTROLS ───────────────────────────────────────────────────────────
-// Tap top 2/3 of canvas = jump   |   tap/hold bottom 1/3 = duck
-let touchDucking = false;
-
-canvas_touchStart = function(e) {
+// ─── TOUCH: tap = jump, swipe down = duck ─────────────────────────────────────
+function onCanvasTouchStart(e) {
   e.preventDefault();
-  const rect = canvas.getBoundingClientRect();
-  const touch = e.changedTouches[0];
-  const ty = (touch.clientY - rect.top) * (H / rect.height);
-  const isBottomThird = ty > H * 0.67;
-
-  if (gameState === 'idle')        { startCountdown(); return; }
-  if (gameState === 'user-paused') { togglePause(); return; }
-  if (gameState === 'playing') {
-    if (isBottomThird) {
-      char.ducking = true;
-      touchDucking = true;
-    } else if (onGnd() && !char.ducking) {
-      char.vy = JUMP_VY;
-    }
+  if (gameState==='idle')        { startCountdown(); return; }
+  if (gameState==='user-paused') { togglePause(); return; }
+  if (gameState==='playing' && onGnd() && !char.ducking) char.vy = JUMP_VY;
+  touchStartY  = e.changedTouches[0].clientY;
+  touchDucking = false;
+}
+function onCanvasTouchMove(e) {
+  e.preventDefault();
+  if (gameState !== 'playing') return;
+  const dy = e.changedTouches[0].clientY - touchStartY;
+  if (dy > 32 && !touchDucking) {
+    touchDucking  = true;
+    char.ducking  = true;
+    char.vy = Math.max(char.vy, 80); // cancel upward momentum
   }
-};
-
-canvas_touchEnd = function(e) {
+}
+function onCanvasTouchEnd(e) {
   e.preventDefault();
   if (touchDucking) { char.ducking = false; touchDucking = false; }
-};
+}
 
 function togglePause() {
   gameState = gameState==='user-paused' ? 'playing' : 'user-paused';
+  document.getElementById('pause-btn').textContent = gameState==='user-paused' ? '▶' : '⏸';
 }
 
 // ─── UPDATE ───────────────────────────────────────────────────────────────────
@@ -382,39 +544,112 @@ function update(dt) {
   if (gameState !== 'playing') return;
 
   if (char.invincible > 0) char.invincible -= dt;
+  if (shakeIntensity > 0)  shakeIntensity = Math.max(0, shakeIntensity - dt * 4);
+  if (comboTimer > 0)      comboTimer -= dt;
 
-  const dx = BASE_SPEED * speed * dt;
+  // Active power timer
+  if (activePower) {
+    activePower.timer -= dt;
+    if (activePower.timer <= 0) activePower = null;
+  }
+
+  const spd = currentSpeed();
+  const dx  = BASE_SPEED * spd * dt;
   for (const t of tiles) t.x -= dx;
+  distanceTraveled += dx;
   score += dx;
 
+  // Particles
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    p.vy += 380 * dt; p.life -= dt * 1.8;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+
+  // Floating texts
+  for (let i = floatingTexts.length - 1; i >= 0; i--) {
+    const ft = floatingTexts[i];
+    ft.y += ft.vy * dt; ft.life -= dt;
+    if (ft.life <= 0) floatingTexts.splice(i, 1);
+  }
+
+  // Character physics
   char.vy += GRAVITY * dt;
   char.y  += char.vy * dt;
 
   const cx = CHAR_X + CHAR_W / 2;
   let gnd = false;
   for (const t of tiles) {
-    if (t.type==='word' && cx>=t.x && cx<=t.x+t.w) { gnd=true; break; }
+    if (t.type==='word'   && cx>=t.x && cx<=t.x+t.w) { gnd=true; break; }
+    if (t.type==='lowbar' && cx>=t.x && cx<=t.x+t.w) { gnd=true; break; }
+    if (t.type==='gap'    && t.bridged && cx>=t.x && cx<=t.x+t.w) { gnd=true; break; }
+    if (t.type==='gap'    && activePower?.type==='hoverboard' && cx>=t.x && cx<=t.x+t.w) { gnd=true; break; }
   }
   if (gnd && char.vy>=0 && charBot()>=GROUND_Y) {
     char.y = GROUND_Y - charH(); char.vy = 0;
   }
 
+  // Combo: count every cleared obstacle, display every 3rd
+  for (const t of tiles) {
+    if (!t.cleared && t.x + t.w < CHAR_X) {
+      t.cleared = true;
+      const isObstacle = (t.type==='gap'||t.type==='bar'||t.type==='lowbar') && !t.bridged;
+      if (isObstacle) {
+        comboHits++;
+        const newCombo = Math.floor(comboHits / 3);
+        if (newCombo > combo) {
+          combo = newCombo;
+          comboMax = Math.max(comboMax, combo);
+          comboTimer = 2.5;
+          score += combo * 200;
+          const col = combo >= 4 ? '#FF6B00' : combo >= 2 ? '#FFD700' : '#88CCFF';
+          spawnParticles(CHAR_X - 10, GROUND_Y - 60, col, 10, true);
+        } else {
+          // Small sparkle every hit
+          spawnParticles(CHAR_X - 10, GROUND_Y - 55, '#cccccc', 3, true);
+        }
+      }
+    }
+  }
+
+  // Box hit (jump from below)
+  if (char.invincible <= 0 || true) { // always check boxes
+    for (const t of tiles) {
+      if (t.type==='box' && !t.used) {
+        const bLeft = t.x, bRight = t.x + BOX_W;
+        const bBottom = BOX_BOTTOM, bTop = BOX_BOTTOM - BOX_H;
+        if (char.vy < 0 &&
+            charTop() <= bBottom + 4 && charTop() >= bTop - 10 &&
+            CHAR_X + 6 < bRight && CHAR_X + CHAR_W - 6 > bLeft) {
+          t.used = true;
+          char.vy = 120; // bounce down
+          applyPower(t.powerType);
+        }
+      }
+    }
+  }
+
+  // Collision — bars and lowbars
   if (char.invincible <= 0) {
     for (const t of tiles) {
-      if (t.type==='bar') {
+      if ((t.type==='bar' || t.type==='lowbar') && !t.bridged) {
         const xo = CHAR_X+6 < t.x+t.w && CHAR_X+CHAR_W-6 > t.x;
         if (xo && charTop()<BAR_BEAM_Y && charBot()>BAR_BEAM_Y) { die(); return; }
       }
     }
   }
 
-  if (char.invincible<=0 && char.y>H+60) { die(); return; }
+  if (char.invincible<=0 && char.y > H+60) { die(); return; }
 
+  // Win
   for (const t of tiles) {
-    if (t.type==='end-marker' && t.x<CHAR_X) {
-      gameState='win';
+    if (t.type==='end-marker' && t.x < CHAR_X) {
+      gameState = 'win';
       const title = customTitle ? `"${customTitle}"` : 'the passage';
-      showModal('You finished!', `You read all of ${title}.\nWell done!`, [], null, 'Play Again →', resetGame);
+      showModal('You finished!',
+        `You read all of ${title}.\nBest combo: ${comboMax}×\nScore: ${Math.floor(score/10)}`,
+        [], null, 'Play Again →', resetGame);
       return;
     }
   }
@@ -422,156 +657,304 @@ function update(dt) {
 
 // ─── DIE ──────────────────────────────────────────────────────────────────────
 function die() {
-  if (char.invincible>0) return;
+  if (char.invincible > 0) return;
   lives--;
+  shakeIntensity = 1.0;
+  spawnParticles(CHAR_X + CHAR_W/2, char.y + charH()/2, '#FF4444', 10);
+  spawnParticles(CHAR_X + CHAR_W/2, char.y + charH()/2, '#FF9900', 7);
+  comboHits = 0; combo = 0; comboTimer = 0;
   char.y=GROUND_Y-CHAR_H_STAND; char.vy=0; char.ducking=false; char.invincible=2.5;
-  if (lives<=0) {
-    gameState='dead';
-    showModal('Game Over','No more lives.',[],null,'Try Again →',resetGame);
+  if (lives <= 0) {
+    gameState = 'dead';
+    showModal('Game Over',
+      `Score: ${Math.floor(score/10)}\nBest combo: ${comboMax}×`,
+      [], null, 'Try Again →', resetGame);
     return;
   }
-  gameState='paused';
+  gameState = 'paused';
   showQuestion(activeQuestions[qIdx % activeQuestions.length]);
   qIdx++;
 }
 
 // ─── DRAW ─────────────────────────────────────────────────────────────────────
 function draw() {
-  ctx.fillStyle='#f7f7f7';
-  ctx.fillRect(0,0,W,H);
+  ctx.fillStyle = '#f7f7f7';
+  ctx.fillRect(0, 0, W, H);
 
-  // Ground line under words
-  ctx.fillStyle='#999';
+  ctx.save();
+  if (shakeIntensity > 0) {
+    ctx.translate(
+      (Math.random()-0.5)*shakeIntensity*14,
+      (Math.random()-0.5)*shakeIntensity*8
+    );
+  }
+
+  // Ground lines
+  ctx.fillStyle = '#999';
+  ctx.fillRect(0, GROUND_Y+2, CHAR_X, 2);
   for (const t of tiles) {
     if (t.type==='word' && t.x<W && t.x+t.w>0)
       ctx.fillRect(t.x, GROUND_Y+2, t.w, 2);
+    if (t.type==='lowbar' && t.x<W && t.x+t.w>0)
+      ctx.fillRect(t.x, GROUND_Y+2, t.w, 2);
+    if (t.type==='gap' && t.bridged && t.x<W && t.x+t.w>0)
+      ctx.fillRect(t.x, GROUND_Y+2, t.w, 2);
   }
-  ctx.fillRect(0, GROUND_Y+2, CHAR_X, 2);
 
-  ctx.font=FONT;
+  // Tiles
+  ctx.font = FONT;
   for (const t of tiles) {
-    if (t.x+t.w<-10||t.x>W+10) continue;
+    if (t.x+t.w < -10 || t.x > W+10) continue;
     drawTile(t);
   }
 
+  // Particles
+  for (const p of particles) {
+    ctx.globalAlpha = Math.max(0, p.life);
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x - p.size/2, p.y - p.size/2, p.size, p.size);
+  }
+  ctx.globalAlpha = 1;
+
+  // Hoverboard (drawn under Mario before Mario is drawn)
+  if (activePower && activePower.type === 'hoverboard') {
+    const bx = CHAR_X - 8;
+    const by = char.y + charH() - 3;
+    const bw = CHAR_W + 16;
+    const pulse = 0.6 + 0.4 * Math.sin(Date.now() / 120);
+    ctx.save();
+    // Glow under board
+    ctx.shadowColor = '#00FFCC';
+    ctx.shadowBlur = 14 * pulse;
+    ctx.fillStyle = `rgba(0,220,180,${0.25 * pulse})`;
+    ctx.fillRect(bx - 4, by + 5, bw + 8, 8);
+    // Board body
+    ctx.shadowBlur = 6;
+    ctx.fillStyle = '#00CCAA';
+    ctx.fillRect(bx, by, bw, 5);
+    // Board shine
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = `rgba(180,255,240,${0.5 * pulse})`;
+    ctx.fillRect(bx + 2, by + 1, bw - 4, 2);
+    // Hover jets (little cyan dots underneath)
+    ctx.fillStyle = `rgba(0,255,200,${0.7 * pulse})`;
+    ctx.fillRect(bx + 4,       by + 5, 5, 4);
+    ctx.fillRect(bx + bw - 9,  by + 5, 5, 4);
+    ctx.restore();
+  }
+
+  // Yoyo orbit
+  if (activePower && activePower.type === 'yoyo') {
+    const t = Date.now() / 280;
+    const ox = CHAR_X + CHAR_W/2 + Math.cos(t) * 36;
+    const oy = char.y + charH()/2 + Math.sin(t) * 24;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(100,220,180,0.5)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(CHAR_X + CHAR_W/2, char.y + charH()/2);
+    ctx.lineTo(ox, oy);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(100,220,180,0.8)';
+    ctx.beginPath(); ctx.arc(ox, oy, 7, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+
+  // Mario
   const flash = char.invincible>0 && Math.floor(char.invincible*10)%2===0;
   if (!flash) drawMario(CHAR_X, char.y);
+
+  ctx.restore(); // end shake
+
+  // Floating texts
+  for (const ft of floatingTexts) {
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, ft.life);
+    ctx.font = 'bold 16px Courier New';
+    ctx.fillStyle = ft.color;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(ft.text, ft.x, ft.y);
+    ctx.restore();
+  }
+
+  // Combo display
+  if (comboTimer > 0 && combo >= 1) {
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, comboTimer);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const fsize = Math.min(18 + combo * 2.5, 42);
+    ctx.font = `bold ${fsize}px 'Courier New', monospace`;
+    ctx.fillStyle = '#000';
+    ctx.fillText(`${combo}\u00d7 COMBO!`, W/2+1, 62+1);
+    ctx.fillStyle = combo >= 4 ? '#FF6B00' : combo >= 2 ? '#FFD700' : '#88CCFF';
+    ctx.fillText(`${combo}\u00d7 COMBO!`, W/2, 62);
+    ctx.restore();
+  }
 
   drawHUD();
 
   // Progress bar
-  const em = tiles.find(t=>t.type==='end-marker');
+  const em = tiles.find(t => t.type==='end-marker');
   if (em && gameState!=='idle') {
-    const prog = Math.max(0,Math.min(1,1-(em.x-CHAR_X)/totalWidth));
+    const prog = Math.max(0, Math.min(1, 1-(em.x-CHAR_X)/totalWidth));
     ctx.fillStyle='#ddd'; ctx.fillRect(0,H-4,W,4);
     ctx.fillStyle='#888'; ctx.fillRect(0,H-4,W*prog,4);
   }
 
   // Countdown
   if (gameState==='countdown') {
-    ctx.fillStyle='rgba(247,247,247,0.7)';
-    ctx.fillRect(0,0,W,H);
-    const label = cdVal>0 ? String(cdVal) : 'GO!';
+    ctx.fillStyle='rgba(247,247,247,0.72)'; ctx.fillRect(0,0,W,H);
     ctx.save();
     ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.font=`bold 100px 'Courier New', monospace`;
     ctx.fillStyle='#444';
-    ctx.fillText(label, W/2, H/2-10);
+    ctx.fillText(cdVal>0 ? String(cdVal) : 'GO!', W/2, H/2-10);
     ctx.restore();
-    ctx.font=FONT;
   }
 
   // Pause overlay
   if (gameState==='user-paused') {
-    ctx.fillStyle='rgba(247,247,247,0.82)';
-    ctx.fillRect(0,0,W,H);
+    ctx.fillStyle='rgba(247,247,247,0.82)'; ctx.fillRect(0,0,W,H);
     ctx.save();
     ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.font=`bold 36px 'Courier New', monospace`;
-    ctx.fillStyle='#444';
+    ctx.font=`bold 36px 'Courier New', monospace`; ctx.fillStyle='#444';
     ctx.fillText('PAUSED', W/2, H/2-18);
-    ctx.font=`14px 'Courier New', monospace`;
-    ctx.fillStyle='#888';
-    ctx.fillText('press P or SPACE to resume', W/2, H/2+18);
+    ctx.font=`14px 'Courier New', monospace`; ctx.fillStyle='#888';
+    ctx.fillText('tap \u25b6 \u00b7 press P or SPACE to resume', W/2, H/2+18);
     ctx.restore();
-    ctx.font=FONT;
   }
 }
 
+// ─── DRAW TILE ────────────────────────────────────────────────────────────────
 function drawTile(t) {
-  if (t.type==='word') {
+  if (t.type === 'word') {
     ctx.fillStyle = t.isEnd ? '#16a34a' : '#333';
-    ctx.textBaseline='alphabetic';
+    ctx.textBaseline = 'alphabetic';
     ctx.fillText(t.text, t.x, GROUND_Y);
 
-  } else if (t.type==='gap') {
-    ctx.fillStyle = t.size==='big' ? '#bbb' : '#ccc';
-    ctx.fillRect(t.x, GROUND_Y+2, t.w, 20);
-    ctx.fillStyle='#aaa';
-    ctx.fillRect(t.x, GROUND_Y+2, 3, 8);
-    ctx.fillRect(t.x+t.w-3, GROUND_Y+2, 3, 8);
-    ctx.fillStyle = t.size==='big' ? '#999' : '#bbb';
-    ctx.font='bold 10px Courier New';
-    ctx.textAlign='center'; ctx.textBaseline='bottom';
-    ctx.fillText(t.size==='big'?'JUMP':'hop', t.x+t.w/2, GROUND_Y-4);
-    ctx.textAlign='left'; ctx.textBaseline='alphabetic';
-    ctx.font=FONT;
+  } else if (t.type === 'gap') {
+    if (activePower && activePower.type === 'hoverboard') {
+      // Hoverboard: gaps glow cyan, skatable
+      const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 120);
+      ctx.fillStyle = `rgba(0,220,180,${0.15 + 0.1 * pulse})`;
+      ctx.fillRect(t.x, GROUND_Y - 6, t.w, 8);
+      ctx.fillStyle = `rgba(0,255,200,${0.4 * pulse})`;
+      ctx.fillRect(t.x, GROUND_Y, t.w, 2);
+    } else if (t.bridged) {
+      ctx.fillStyle = '#cce8ff';
+      ctx.fillRect(t.x, GROUND_Y - 4, t.w, 4);
+    } else {
+      ctx.fillStyle = t.size==='big' ? '#bbb' : '#ccc';
+      ctx.fillRect(t.x, GROUND_Y+2, t.w, 20);
+      ctx.fillStyle='#aaa';
+      ctx.fillRect(t.x, GROUND_Y+2, 3, 8);
+      ctx.fillRect(t.x+t.w-3, GROUND_Y+2, 3, 8);
+      ctx.font='bold 10px Courier New';
+      ctx.fillStyle = t.size==='big' ? '#999' : '#bbb';
+      ctx.textAlign='center'; ctx.textBaseline='bottom';
+      ctx.fillText(t.size==='big'?'JUMP':'hop', t.x+t.w/2, GROUND_Y-4);
+      ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+      ctx.font=FONT;
+    }
 
-  } else if (t.type==='bar') {
-    ctx.fillStyle='#666';
-    ctx.fillRect(t.x, BAR_BEAM_Y+BAR_BEAM_H, 6, GROUND_Y-BAR_BEAM_Y-BAR_BEAM_H);
-    ctx.fillRect(t.x+BAR_W-6, BAR_BEAM_Y+BAR_BEAM_H, 6, GROUND_Y-BAR_BEAM_Y-BAR_BEAM_H);
-    ctx.fillStyle='#555';
-    ctx.fillRect(t.x, BAR_BEAM_Y, BAR_W, BAR_BEAM_H);
-    ctx.fillStyle='#888';
-    ctx.font='bold 9px Courier New';
-    ctx.textAlign='center'; ctx.textBaseline='bottom';
-    ctx.fillText('DUCK', t.x+BAR_W/2, BAR_BEAM_Y-4);
-    ctx.textAlign='left'; ctx.textBaseline='alphabetic';
-    ctx.font=FONT;
+  } else if (t.type === 'lowbar') {
+    // Overhead floating beam (orange) — duck to pass, solid ground below
+    if (!t.bridged) {
+      ctx.fillStyle = '#d96b10';
+      ctx.fillRect(t.x, BAR_BEAM_Y, t.w, BAR_BEAM_H);
+      ctx.fillStyle = '#b85508';
+      ctx.fillRect(t.x, BAR_BEAM_Y, 8, BAR_BEAM_H);
+      ctx.fillRect(t.x+t.w-8, BAR_BEAM_Y, 8, BAR_BEAM_H);
+      // Highlight
+      ctx.fillStyle = 'rgba(255,180,80,0.5)';
+      ctx.fillRect(t.x+2, BAR_BEAM_Y+1, t.w-4, 2);
+      ctx.font='bold 9px Courier New';
+      ctx.fillStyle='#b85508';
+      ctx.textAlign='center'; ctx.textBaseline='bottom';
+      ctx.fillText('DUCK', t.x+t.w/2, BAR_BEAM_Y-4);
+      ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+      ctx.font=FONT;
+    }
+
+  } else if (t.type === 'bar') {
+    if (!t.bridged) {
+      ctx.fillStyle='#666';
+      ctx.fillRect(t.x, BAR_BEAM_Y+BAR_BEAM_H, 6, GROUND_Y-BAR_BEAM_Y-BAR_BEAM_H);
+      ctx.fillRect(t.x+BAR_W-6, BAR_BEAM_Y+BAR_BEAM_H, 6, GROUND_Y-BAR_BEAM_Y-BAR_BEAM_H);
+      ctx.fillStyle='#555';
+      ctx.fillRect(t.x, BAR_BEAM_Y, BAR_W, BAR_BEAM_H);
+      ctx.font='bold 9px Courier New';
+      ctx.fillStyle='#888';
+      ctx.textAlign='center'; ctx.textBaseline='bottom';
+      ctx.fillText('DUCK', t.x+BAR_W/2, BAR_BEAM_Y-4);
+      ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+      ctx.font=FONT;
+    }
+
+  } else if (t.type === 'box') {
+    const bx = t.x, by = BOX_BOTTOM - BOX_H;
+    if (!t.used) {
+      // Outer box
+      ctx.fillStyle = '#c08010';
+      ctx.fillRect(bx, by, BOX_W, BOX_H);
+      // Inner highlight
+      ctx.fillStyle = '#f0c030';
+      ctx.fillRect(bx+2, by+2, BOX_W-5, BOX_H-5);
+      // Shadow edges
+      ctx.fillStyle = '#a06008';
+      ctx.fillRect(bx, by+BOX_H-4, BOX_W, 4);
+      ctx.fillRect(bx+BOX_W-4, by, 4, BOX_H);
+      // ?
+      ctx.font = `bold ${BOX_W-8}px 'Courier New', monospace`;
+      ctx.fillStyle = '#5a3000';
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText('?', bx+BOX_W/2, by+BOX_H/2+1);
+      ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+      ctx.font=FONT;
+    } else {
+      // Used — empty brown
+      ctx.fillStyle = '#7a5520';
+      ctx.fillRect(bx, by, BOX_W, BOX_H);
+      ctx.fillStyle = '#5a3510';
+      ctx.fillRect(bx+2, by+2, BOX_W-4, BOX_H-4);
+    }
   }
 }
 
 // ─── HUD ──────────────────────────────────────────────────────────────────────
 function drawHUD() {
-  // Speed buttons
-  const speeds=[0.5,1,1.5,2], labels=['0.5×','1×','1.5×','2×'];
-  ctx.font='11px Courier New'; ctx.textBaseline='top';
-  let sx=10;
-  speeds.forEach((s,i)=>{
-    const bw=34,bh=18;
-    ctx.fillStyle=speed===s?'#555':'#ccc';
-    ctx.fillRect(sx,8,bw,bh);
-    ctx.fillStyle=speed===s?'#fff':'#666';
-    ctx.textAlign='center';
-    ctx.fillText(labels[i],sx+bw/2,12);
-    sx+=bw+4;
-  });
+  const spd = currentSpeed();
+  ctx.font='11px Courier New'; ctx.textBaseline='top'; ctx.textAlign='left';
+  ctx.fillStyle='rgba(120,120,120,0.75)';
+  ctx.fillText((autoSpeedEnabled?'\u26a1':'')+spd.toFixed(1)+'\u00d7', 10, 10);
 
-  // Pause button (top right area, next to lives)
-  const pw=28, ph=18, px=W-pw-10;
-  ctx.fillStyle = gameState==='user-paused' ? '#555' : '#ccc';
-  ctx.fillRect(px, 8, pw, ph);
-  ctx.fillStyle = gameState==='user-paused' ? '#fff' : '#666';
-  ctx.textAlign='center';
-  ctx.fillText(gameState==='user-paused'?'▶':'⏸', px+pw/2, 12);
+  // Active power indicator
+  if (activePower) {
+    const icons = { glasses:'\u{1F453}', hat:'\u{1F3A9}', hoverboard:'\u{1F6F9}', yoyo:'\u{1FA80}' };
+    const t = Math.ceil(activePower.timer);
+    ctx.fillStyle = activePower.type==='glasses'    ? '#4499ff'
+                  : activePower.type==='yoyo'       ? '#44cc99'
+                  : activePower.type==='hoverboard' ? '#00CCAA'
+                  : '#ff9900';
+    ctx.fillText(`${icons[activePower.type]||''} ${t}s`, 10, 25);
+  }
 
-  // Lives
-  const heartsStr = Array.from({length:5},(_,i)=>i<lives?'♥':'♡').join(' ');
+  // Lives (centered)
+  const heartsStr = Array.from({length:5},(_,i)=>i<lives?'\u2665':'\u2661').join(' ');
   ctx.font='bold 14px Courier New'; ctx.fillStyle='#555';
-  ctx.textAlign='right';
-  ctx.fillText(heartsStr, W-44, 12);
+  ctx.textAlign='center'; ctx.textBaseline='top';
+  ctx.fillText(heartsStr, W/2, 10);
 
   // Score
   const scoreStr = String(Math.floor(score/10)).padStart(5,'0');
-  ctx.font='12px Courier New'; ctx.fillStyle='#888';
-  ctx.fillText(scoreStr, W-44, 30);
+  ctx.font='11px Courier New'; ctx.fillStyle='#aaa';
+  ctx.fillText(scoreStr, W/2, 27);
 
-  // Custom title (if loaded)
+  // Custom title
   if (customTitle) {
-    ctx.font='10px Courier New'; ctx.fillStyle='#aaa';
-    ctx.textAlign='center';
-    ctx.fillText(customTitle.slice(0,40), W/2, H-14);
+    ctx.font='10px Courier New'; ctx.fillStyle='#bbb';
+    ctx.textAlign='center'; ctx.textBaseline='bottom';
+    ctx.fillText(customTitle.slice(0,40), W/2, H-6);
   }
 
   ctx.textAlign='left'; ctx.textBaseline='alphabetic';
@@ -581,7 +964,7 @@ function drawHUD() {
 function drawMario(bx, by) {
   const ducking=char.ducking, oH=ducking?28:56;
   ctx.save();
-  ctx.translate(bx,by);
+  ctx.translate(bx, by);
   ctx.scale(CHAR_W/30, charH()/oH);
   if (ducking) {
     ctx.fillStyle='#CC2200'; ctx.fillRect(3,0,24,8); ctx.fillRect(-1,8,32,3);
@@ -602,7 +985,7 @@ function drawMario(bx, by) {
     ctx.fillStyle='#CC2200'; ctx.fillRect(0,31,30,10);
     ctx.fillStyle='#1A4DB8'; ctx.fillRect(9,31,12,8);
     ctx.fillStyle='#FFD700'; ctx.fillRect(11,35,3,3); ctx.fillRect(17,35,3,3);
-    const sw=Math.sin(Date.now()/105)>0;
+    const sw = Math.sin(Date.now()/105) > 0;
     ctx.fillStyle='#1A4DB8';
     const lh=onGnd()?(sw?13:8):8, rh=onGnd()?(sw?8:13):8;
     ctx.fillRect(2,41,12,lh); ctx.fillRect(16,41,12,rh);
@@ -614,130 +997,153 @@ function drawMario(bx, by) {
 
 // ─── LOOP ─────────────────────────────────────────────────────────────────────
 function loop(ts) {
-  if (!lastTS) lastTS=ts;
-  const dt=Math.min((ts-lastTS)/1000,0.05);
-  lastTS=ts;
+  if (!lastTS) lastTS = ts;
+  const dt = Math.min((ts-lastTS)/1000, 0.05);
+  lastTS = ts;
   update(dt); draw();
-  animId=requestAnimationFrame(loop);
+  animId = requestAnimationFrame(loop);
 }
 
 // ─── MODAL HELPERS ────────────────────────────────────────────────────────────
-function showModal(title,text,_c,_cb,btnLabel,onBtn) {
-  document.getElementById('modal-title').textContent=title;
-  document.getElementById('modal-text').textContent=text;
-  document.getElementById('choices').innerHTML='';
-  document.getElementById('upload-row').style.display='none';
-  const cb=document.getElementById('continue-btn');
-  cb.style.display=onBtn?'inline-block':'none';
-  cb.textContent=btnLabel||'Continue →'; cb.onclick=onBtn;
+function showModal(title, text, _c, _cb, btnLabel, onBtn) {
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-text').textContent  = text;
+  document.getElementById('choices').innerHTML = '';
+  document.getElementById('upload-row').style.display = 'none';
+  const cb = document.getElementById('continue-btn');
+  cb.style.display = onBtn ? 'inline-block' : 'none';
+  cb.textContent = btnLabel || 'Continue →'; cb.onclick = onBtn;
   document.getElementById('overlay').classList.remove('hidden');
 }
 
 function showStartModal() {
-  document.getElementById('modal-title').textContent='ReadRun';
-  document.getElementById('modal-text').textContent=
-    'Run across the words.\n\nSPACE / ↑  →  jump over gaps  ( .  !  ? )\n↓  →  duck under bars  ( —  - )\nP  →  pause / resume\n\n5 lives · answer a question each time you fall';
-  document.getElementById('choices').innerHTML='';
-  document.getElementById('upload-row').style.display='flex';
-  const cb=document.getElementById('continue-btn');
-  cb.style.display='inline-block';
-  cb.textContent='Start →'; cb.onclick=startCountdown;
+  document.getElementById('modal-title').textContent = 'ReadRun';
+  document.getElementById('modal-text').textContent =
+    'Run across the words.\n\nSPACE / \u2191  \u2192  jump over gaps  ( .  !  ? )\n\u2193  \u2192  duck under bars  ( \u2014  - )\nP  \u2192  pause\n\n\u2753 boxes: jump to hit for powers!\n\u{1F6F9} hoverboard \u2022 \u{1FA80} shield \u2022 \u{1F3A9} +1 life \u2022 \u{1F453} slow\nOn mobile: TAP = jump \u2022 swipe down or DUCK = duck\n\n5 lives \u00b7 answer a question each time you fall';
+  document.getElementById('choices').innerHTML = '';
+  document.getElementById('upload-row').style.display = 'flex';
+  const cb = document.getElementById('continue-btn');
+  cb.style.display = 'inline-block';
+  cb.textContent = 'Start \u2192'; cb.onclick = startCountdown;
   document.getElementById('overlay').classList.remove('hidden');
 }
 
 function showQuestion(q) {
-  document.getElementById('modal-title').textContent='Quick question!';
-  document.getElementById('modal-text').textContent=q.q;
-  document.getElementById('upload-row').style.display='none';
-  const el=document.getElementById('choices');
-  el.innerHTML=''; let picked=false;
-  q.choices.forEach((text,i)=>{
-    const b=document.createElement('button');
-    b.className='choice'; b.textContent=text;
-    b.addEventListener('click',()=>{
-      if(picked) return; picked=true;
-      el.querySelectorAll('.choice').forEach((bb,j)=>{
-        if(j===q.answer) bb.classList.add('correct');
-        else if(j===i)   bb.classList.add('wrong');
-        else             bb.classList.add('disabled');
+  document.getElementById('modal-title').textContent = 'Quick question!';
+  document.getElementById('modal-text').textContent  = q.q;
+  document.getElementById('upload-row').style.display = 'none';
+  const el = document.getElementById('choices');
+  el.innerHTML = ''; let picked = false;
+  q.choices.forEach((text, i) => {
+    const b = document.createElement('button');
+    b.className = 'choice'; b.textContent = text;
+    b.addEventListener('click', () => {
+      if (picked) return; picked = true;
+      el.querySelectorAll('.choice').forEach((bb, j) => {
+        if (j===q.answer)  bb.classList.add('correct');
+        else if (j===i)    bb.classList.add('wrong');
+        else               bb.classList.add('disabled');
       });
-      const cb=document.getElementById('continue-btn');
-      cb.style.display='inline-block'; cb.textContent='Keep reading →';
-      cb.onclick=()=>{
+      const cb = document.getElementById('continue-btn');
+      cb.style.display = 'inline-block'; cb.textContent = 'Keep reading \u2192';
+      cb.onclick = () => {
         document.getElementById('overlay').classList.add('hidden');
-        gameState='playing';
+        gameState = 'playing';
       };
     });
     el.appendChild(b);
   });
-  document.getElementById('continue-btn').style.display='none';
+  document.getElementById('continue-btn').style.display = 'none';
   document.getElementById('overlay').classList.remove('hidden');
-}
-
-// ─── CANVAS CLICKS (speed + pause buttons) ────────────────────────────────────
-function canvasClick(e) {
-  const rect=canvas.getBoundingClientRect();
-  const mx=(e.clientX-rect.left)*(W/rect.width);
-  const my=(e.clientY-rect.top)*(H/rect.height);
-  // Speed buttons
-  const speeds=[0.5,1,1.5,2], bw=34, bh=18;
-  let sx=10;
-  speeds.forEach(s=>{
-    if(mx>=sx&&mx<=sx+bw&&my>=8&&my<=8+bh) speed=s;
-    sx+=bw+4;
-  });
-  // Pause button
-  const pw=28, ph=18, px=W-pw-10;
-  if(mx>=px&&mx<=px+pw&&my>=8&&my<=8+ph) {
-    if(gameState==='playing'||gameState==='user-paused') togglePause();
-  }
 }
 
 // ─── START / RESET ────────────────────────────────────────────────────────────
 function startCountdown() {
   document.getElementById('overlay').classList.add('hidden');
-  // Rebuild tiles with current activeText
-  tiles=buildTiles(ctx, activeText);
-  const em=tiles.find(t=>t.type==='end-marker');
-  totalWidth=em?em.x-CHAR_X:1;
+  tiles = buildTiles(ctx, activeText);
+  const em = tiles.find(t => t.type==='end-marker');
+  totalWidth = em ? em.x - CHAR_X : 1;
+  distanceTraveled=0; comboHits=0; combo=0; comboMax=0; comboTimer=0;
+  activePower=null;
   cdVal=3; cdTimer=1.0; gameState='countdown';
 }
 
 function resetGame() {
   lives=5; qIdx=0; score=0;
   char.y=GROUND_Y-CHAR_H_STAND; char.vy=0; char.ducking=false; char.invincible=0;
-  tiles=buildTiles(ctx, activeText);
-  const em=tiles.find(t=>t.type==='end-marker');
-  totalWidth=em?em.x-CHAR_X:1;
+  tiles = buildTiles(ctx, activeText);
+  const em = tiles.find(t => t.type==='end-marker');
+  totalWidth = em ? em.x - CHAR_X : 1;
+  distanceTraveled=0; comboHits=0; combo=0; comboMax=0; comboTimer=0;
+  activePower=null;
+  particles.length=0; floatingTexts.length=0; shakeIntensity=0;
   document.getElementById('overlay').classList.add('hidden');
   cdVal=3; cdTimer=1.0; gameState='countdown'; lastTS=null;
 }
 
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 window.addEventListener('load', () => {
-  canvas=document.getElementById('canvas');
-  ctx=canvas.getContext('2d');
-  ctx.font=FONT;
+  canvas = document.getElementById('canvas');
+  ctx    = canvas.getContext('2d');
+  ctx.font = FONT;
 
-  // Initial tiles with default text
-  tiles=buildTiles(ctx, DEFAULT_TEXT);
-  const em=tiles.find(t=>t.type==='end-marker');
-  totalWidth=em?em.x-CHAR_X:1;
+  tiles = buildTiles(ctx, DEFAULT_TEXT);
+  const em = tiles.find(t => t.type==='end-marker');
+  totalWidth = em ? em.x - CHAR_X : 1;
 
-  canvas.addEventListener('click', canvasClick);
-  canvas.addEventListener('touchstart', canvas_touchStart, { passive: false });
-  canvas.addEventListener('touchend',   canvas_touchEnd,   { passive: false });
+  // Touch controls
+  canvas.addEventListener('touchstart', onCanvasTouchStart, { passive: false });
+  canvas.addEventListener('touchmove',  onCanvasTouchMove,  { passive: false });
+  canvas.addEventListener('touchend',   onCanvasTouchEnd,   { passive: false });
 
-  // File input handler
-  const fileInput=document.getElementById('file-input');
-  fileInput.addEventListener('change', async e=>{
-    const f=e.target.files[0];
-    if(f) await loadFile(f);
-    fileInput.value='';
+  // Duck button
+  const duckBtn = document.getElementById('duck-btn');
+  duckBtn.addEventListener('touchstart', e => {
+    e.preventDefault(); e.stopPropagation();
+    if (gameState==='playing') char.ducking = true;
+  }, { passive: false });
+  duckBtn.addEventListener('touchend', e => {
+    e.preventDefault(); e.stopPropagation();
+    char.ducking = false;
+  }, { passive: false });
+
+  // Pause
+  document.getElementById('pause-btn').addEventListener('click', () => {
+    if (gameState==='playing'||gameState==='user-paused') togglePause();
+  });
+
+  // Settings gear
+  const settingsBtn   = document.getElementById('settings-btn');
+  const settingsPanel = document.getElementById('settings-panel');
+  settingsBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    settingsPanel.classList.toggle('hidden');
+  });
+  document.addEventListener('click', () => settingsPanel.classList.add('hidden'));
+  settingsPanel.addEventListener('click', e => e.stopPropagation());
+
+  // Speed buttons
+  document.querySelectorAll('.spd-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      manualSpeed = parseFloat(btn.dataset.s);
+      document.querySelectorAll('.spd-btn').forEach(b => b.classList.toggle('active', b===btn));
+    });
+  });
+
+  // Auto-speed toggle
+  document.getElementById('auto-speed-chk').addEventListener('change', e => {
+    autoSpeedEnabled = e.target.checked;
+  });
+
+  // File input
+  document.getElementById('file-input').addEventListener('change', async e => {
+    const f = e.target.files[0];
+    if (f) await loadFile(f);
+    e.target.value = '';
   });
 
   showStartModal();
-  animId=requestAnimationFrame(loop);
+  animId = requestAnimationFrame(loop);
 });
 </script>
 </body>
